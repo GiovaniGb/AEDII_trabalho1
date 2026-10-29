@@ -1,3 +1,4 @@
+import csv
 import os
 import shutil
 
@@ -112,6 +113,89 @@ def reconstruir_indice_parcial(arq_dados: str, arq_indice: str, tamanho_registro
 # ==============================================================================
 # OPERAÇÕES PRINCIPAIS DO SISTEMA
 # ==============================================================================
+def inserir_dados_iniciais(arquivos_csv: list = None, max_linhas_por_arquivo: int = 100000):
+    """
+    1) INSERIR DADOS INICIAIS:
+    Lê os arquivos CSV originais, gera os arquivos binários ('produtos.dat' e 'acessos.dat') 
+    e constrói os arquivos de índice parcial ('.idx').
+    """
+    global indice_produtos, indice_acessos
+
+    if arquivos_csv is None:
+        arquivos_csv = ["2019-Oct.csv", "2019-Nov.csv"]
+
+    csvs_encontrados = [f for f in arquivos_csv if os.path.exists(f)]
+    if not csvs_encontrados:
+        print("\n[!] Erro: Nenhum arquivo CSV original (2019-Oct.csv / 2019-Nov.csv) foi localizado.")
+        return False
+
+    print("\n==================================================================")
+    print("      INICIANDO CARGA INICIAL DE DADOS E GERAÇÃO DE ÍNDICES       ")
+    print("==================================================================")
+
+    produtos_dict = {}  # Mantém unicidade dos produtos
+    event_id_counter = 1
+
+    # 1. Leitura dos CSVs e escrita streaming do arquivo acessos.dat
+    with open(ARQ_ACES_DAT, "wb") as f_acessos:
+        for csv_file in csvs_encontrados:
+            print(f"[->] Processando '{csv_file}'...")
+            with open(csv_file, mode='r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                header = next(reader, None)  # Pula o cabeçalho do CSV
+                
+                count = 0
+                for row in reader:
+                    if not row or len(row) < 8:
+                        continue
+
+                    try:
+                        event_type = row[1].strip()
+                        product_id = int(row[2].strip())
+                        category_code = row[4].strip() if row[4].strip() else "sem_categoria"
+                        brand = row[5].strip() if row[5].strip() else "sem_marca"
+                        price = float(row[6].strip()) if row[6].strip() else 0.0
+                        user_id = int(row[7].strip())
+                    except (ValueError, IndexError):
+                        continue
+
+                    # Salva produto no dicionário
+                    if product_id not in produtos_dict:
+                        produtos_dict[product_id] = (brand, price, category_code)
+
+                    # Grava o registro de acesso formatado no .dat
+                    rec_acesso = formatar_acesso(event_id_counter, event_type, product_id, user_id)
+                    f_acessos.write(rec_acesso)
+                    event_id_counter += 1
+
+                    count += 1
+                    if max_linhas_por_arquivo and count >= max_linhas_por_arquivo:
+                        print(f"    Limite de {max_linhas_por_arquivo:,} linhas atingido para '{csv_file}'.")
+                        break
+
+    # 2. Gravação ordenada do arquivo produtos.dat
+    print(f"\n[->] Ordenando e gravando {len(produtos_dict):,} produtos em '{ARQ_PROD_DAT}'...")
+    produtos_ordenados = sorted(produtos_dict.items(), key=lambda x: x[0])
+
+    with open(ARQ_PROD_DAT, "wb") as f_produtos:
+        for p_id, (brand, price, category_code) in produtos_ordenados:
+            rec_produto = formatar_produto(p_id, brand, price, category_code)
+            f_produtos.write(rec_produto)
+
+    print(f"[+] '{ARQ_PROD_DAT}' gerado com sucesso!")
+    print(f"[+] '{ARQ_ACES_DAT}' gerado com sucesso!")
+
+    # 3. Construção dos arquivos de índice parcial .idx
+    print("\n[->] Gerando arquivos de índices parciais (.idx)...")
+    indice_produtos = reconstruir_indice_parcial(ARQ_PROD_DAT, ARQ_PROD_IDX, TAMANHO_REGISTRO_PRODUTO)
+    indice_acessos = reconstruir_indice_parcial(ARQ_ACES_DAT, ARQ_ACES_IDX, TAMANHO_REGISTRO_ACESSO)
+
+    print(f"[+] '{ARQ_PROD_IDX}' gerado com {len(indice_produtos):,} entradas.")
+    print(f"[+] '{ARQ_ACES_IDX}' gerado com {len(indice_acessos):,} entradas.")
+    print("\n[+] Carga inicial concluída com sucesso!")
+    return True
+
+
 def mostrar_dados(arq_dados: str, tamanho_registro: int, parser_fn, inicio: int, qtd: int):
     """Exibe registros do arquivo .dat sem carregar tudo na RAM (navega com seek)."""
     if not os.path.exists(arq_dados):
@@ -311,7 +395,7 @@ def remover_registro_logico(tipo_base: str, target_id: int):
             else:
                 high = mid - 1
 
-    # 2. Reconstrói o índice APÓS o salvamento e fechamento do arquivo .dat
+    # 2. Reconstrói o índice APÓS a remoção
     if removido:
         if tipo_base == 'produto':
             indice_produtos = reconstruir_indice_parcial(arq_dados, arq_indice, tamanho_registro)
@@ -339,11 +423,12 @@ def menu_principal():
         print("\n==================================================================")
         print("     SISTEMA DE ORGANIZAÇÃO SEQUENCIAL-INDEXADO DE ARQUIVOS")
         print("==================================================================")
-        print("1. Mostrar dados (Parcial ou Total)")
-        print("2. Pesquisa Binária DIRETA no arquivo de dados (.dat)")
-        print("3. Consulta por ÍNDICE PARCIAL (.idx + fseek)")
-        print("4. Inserir novo registro (com reconstrução do índice)")
-        print("5. Remover registro (com reconstrução do índice)")
+        print("1. Inserir dados iniciais (Gerar .dat e .idx dos CSVs)")
+        print("2. Mostrar dados (Parcial ou Total)")
+        print("3. Pesquisa Binária DIRETA no arquivo de dados (.dat)")
+        print("4. Consulta por ÍNDICE PARCIAL (.idx + fseek)")
+        print("5. Inserir novo registro (com reconstrução do índice)")
+        print("6. Remover registro (com reconstrução do índice)")
         print("0. Sair do programa")
         print("------------------------------------------------------------------")
         
@@ -355,7 +440,12 @@ def menu_principal():
             salvar_indice_parcial(ARQ_ACES_IDX, indice_acessos)
             break
 
-        elif opcao in ["1", "2", "3", "4", "5"]:
+        elif opcao == "1":
+            qtd_max = input("Informe o limite de linhas por CSV a carregar (Enter para 100.000): ").strip()
+            limite = int(qtd_max) if qtd_max.isdigit() else 100000
+            inserir_dados_iniciais(max_linhas_por_arquivo=limite)
+
+        elif opcao in ["2", "3", "4", "5", "6"]:
             print("\nSelecione qual arquivo deseja manipular:")
             print("  1. Produtos (produtos.dat)")
             print("  2. Acessos  (acessos.dat)")
@@ -372,24 +462,24 @@ def menu_principal():
             parser = desformatar_produto if tipo_base == 'produto' else desformatar_acesso
             ind_ram = indice_produtos if tipo_base == 'produto' else indice_acessos
 
-            if opcao == "1":
+            if opcao == "2":
                 inicio = int(input("Informe o índice inicial (padrão 0): ") or "0")
                 qtd = int(input("Informe a quantidade de registros a exibir (padrão 10): ") or "10")
                 mostrar_dados(arq_dat, tam_rec, parser, inicio, qtd)
 
-            elif opcao == "2":
+            elif opcao == "3":
                 target = int(input(f"Digite o ID do {tipo_base} para pesquisa binária direta: "))
                 res = pesquisa_binaria_direta(arq_dat, target, tam_rec, parser)
                 if res:
                     print("    Dados:", res)
 
-            elif opcao == "3":
+            elif opcao == "4":
                 target = int(input(f"Digite o ID do {tipo_base} para consultar via Índice Parcial: "))
                 res = consultar_por_indice(arq_dat, ind_ram, target, tam_rec, parser)
                 if res:
                     print("    Dados:", res)
 
-            elif opcao == "4":
+            elif opcao == "5":
                 print(f"\n--- Inserindo novo registro em {arq_dat} ---")
                 target_id = int(input(f"ID do {tipo_base}: "))
                 if tipo_base == 'produto':
@@ -405,7 +495,7 @@ def menu_principal():
                 
                 inserir_registro(tipo_base, novo_bytes, target_id)
 
-            elif opcao == "5":
+            elif opcao == "6":
                 target_id = int(input(f"Digite o ID do {tipo_base} a ser REMOVIDO: "))
                 remover_registro_logico(tipo_base, target_id)
 
