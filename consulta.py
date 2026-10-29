@@ -2,6 +2,7 @@ import csv
 import os
 import shutil
 
+# CONFIGURAÇÕES E TAMANHOS DE REGISTROS (TAMANHO FIXO COM '\n')
 # Registros de Produtos: 10 (id) + 20 (brand) + 10 (price) + 30 (cat) + 1 (\n) = 71 bytes
 TAMANHO_REGISTRO_PRODUTO = 71
 # Registros de Acessos: 10 (id) + 12 (type) + 10 (prod_id) + 10 (user_id) + 1 (\n) = 43 bytes
@@ -92,7 +93,6 @@ def reconstruir_indice_parcial(arq_dados: str, arq_indice: str, tamanho_registro
                 break
 
             chave = reg_bytes[:TAMANHO_CHAVE].decode('utf-8')
-            # Ignora registros marcados como deletados logicamente ('*')
             if not chave.startswith('*'):
                 if registros_validos % INTERVALO_BLOCO_INDICE == 0:
                     novo_indice.append((chave, offset_atual))
@@ -102,13 +102,8 @@ def reconstruir_indice_parcial(arq_dados: str, arq_indice: str, tamanho_registro
     return novo_indice
 
 
-# OPERAÇÕES PRINCIPAIS DO SISTEMA
+# OPERAÇÕES PRINCIPAIS E CONSULTAS ANALÍTICAS
 def inserir_dados_iniciais(arquivos_csv: list = None, max_linhas_por_arquivo: int = 100000):
-    """
-    1) INSERIR DADOS INICIAIS:
-    Lê os arquivos CSV originais, gera os arquivos binários ('produtos.dat' e 'acessos.dat') 
-    e constrói os arquivos de índice parcial ('.idx').
-    """
     global indice_produtos, indice_acessos
 
     if arquivos_csv is None:
@@ -123,16 +118,15 @@ def inserir_dados_iniciais(arquivos_csv: list = None, max_linhas_por_arquivo: in
     print("      INICIANDO CARGA INICIAL DE DADOS E GERAÇÃO DE ÍNDICES       ")
     print("==================================================================")
 
-    produtos_dict = {}  # Mantém unicidade dos produtos
+    produtos_dict = {}
     event_id_counter = 1
 
-    # 1. Leitura dos CSVs e escrita streaming do arquivo acessos.dat
     with open(ARQ_ACES_DAT, "wb") as f_acessos:
         for csv_file in csvs_encontrados:
             print(f"[->] Processando '{csv_file}'...")
             with open(csv_file, mode='r', encoding='utf-8') as f:
                 reader = csv.reader(f)
-                header = next(reader, None)  # Pula o cabeçalho do CSV
+                header = next(reader, None)
                 
                 count = 0
                 for row in reader:
@@ -149,11 +143,9 @@ def inserir_dados_iniciais(arquivos_csv: list = None, max_linhas_por_arquivo: in
                     except (ValueError, IndexError):
                         continue
 
-                    # Salva produto no dicionário
                     if product_id not in produtos_dict:
                         produtos_dict[product_id] = (brand, price, category_code)
 
-                    # Grava o registro de acesso formatado no .dat
                     rec_acesso = formatar_acesso(event_id_counter, event_type, product_id, user_id)
                     f_acessos.write(rec_acesso)
                     event_id_counter += 1
@@ -163,7 +155,6 @@ def inserir_dados_iniciais(arquivos_csv: list = None, max_linhas_por_arquivo: in
                         print(f"    Limite de {max_linhas_por_arquivo:,} linhas atingido para '{csv_file}'.")
                         break
 
-    # 2. Gravação ordenada do arquivo produtos.dat
     print(f"\n[->] Ordenando e gravando {len(produtos_dict):,} produtos em '{ARQ_PROD_DAT}'...")
     produtos_ordenados = sorted(produtos_dict.items(), key=lambda x: x[0])
 
@@ -175,7 +166,6 @@ def inserir_dados_iniciais(arquivos_csv: list = None, max_linhas_por_arquivo: in
     print(f"[+] '{ARQ_PROD_DAT}' gerado com sucesso!")
     print(f"[+] '{ARQ_ACES_DAT}' gerado com sucesso!")
 
-    # 3. Construção dos arquivos de índice parcial .idx
     print("\n[->] Gerando arquivos de índices parciais (.idx)...")
     indice_produtos = reconstruir_indice_parcial(ARQ_PROD_DAT, ARQ_PROD_IDX, TAMANHO_REGISTRO_PRODUTO)
     indice_acessos = reconstruir_indice_parcial(ARQ_ACES_DAT, ARQ_ACES_IDX, TAMANHO_REGISTRO_ACESSO)
@@ -187,7 +177,6 @@ def inserir_dados_iniciais(arquivos_csv: list = None, max_linhas_por_arquivo: in
 
 
 def mostrar_dados(arq_dados: str, tamanho_registro: int, parser_fn, inicio: int, qtd: int):
-    """Exibe registros do arquivo .dat sem carregar tudo na RAM (navega com seek)."""
     if not os.path.exists(arq_dados):
         print(f"\n[!] Erro: Arquivo '{arq_dados}' não existe no diretório.")
         return
@@ -202,7 +191,7 @@ def mostrar_dados(arq_dados: str, tamanho_registro: int, parser_fn, inicio: int,
                 break
             
             chave = reg_bytes[:TAMANHO_CHAVE].decode('utf-8')
-            if not chave.startswith('*'):  # Oculta deletados logicamente
+            if not chave.startswith('*'):
                 dados = parser_fn(reg_bytes)
                 print(f"[{inicio + lidos:06d}] {dados}")
             else:
@@ -211,7 +200,6 @@ def mostrar_dados(arq_dados: str, tamanho_registro: int, parser_fn, inicio: int,
 
 
 def pesquisa_binaria_direta(arq_dados: str, target_id: int, tamanho_registro: int, parser_fn):
-    """Realiza pesquisa binária diretamente no arquivo físico usando fseek()."""
     if not os.path.exists(arq_dados):
         print(f"\n[!] Arquivo '{arq_dados}' não encontrado.")
         return None
@@ -246,14 +234,12 @@ def pesquisa_binaria_direta(arq_dados: str, target_id: int, tamanho_registro: in
 
 
 def consultar_por_indice(arq_dados: str, indice_ram: list, target_id: int, tamanho_registro: int, parser_fn):
-    """Busca binária no índice em RAM -> Pega offset -> seek() no bloco do arquivo de dados."""
     if not indice_ram:
         print("\n[!] Erro: O índice parcial está vazio ou não foi carregado.")
         return None
 
     target_str = f"{int(target_id):010d}"
     
-    # 1. Pesquisa Binária na tabela de Índice Parcial
     low = 0
     high = len(indice_ram) - 1
     offset_bloco = 0
@@ -270,7 +256,6 @@ def consultar_por_indice(arq_dados: str, indice_ram: list, target_id: int, taman
         else:
             high = mid - 1
 
-    # 2. Pesquisa sequencial restrita apenas ao bloco no arquivo .dat
     comp_dat = 0
     with open(arq_dados, "rb") as f:
         f.seek(offset_bloco)
@@ -293,7 +278,6 @@ def consultar_por_indice(arq_dados: str, indice_ram: list, target_id: int, taman
 
 
 def inserir_registro(tipo_base: str, novo_bytes: bytes, target_id: int):
-    """Insere registro mantendo a ordenação por streaming e reconstrói o índice parcial."""
     global indice_produtos, indice_acessos
 
     arq_dados = ARQ_PROD_DAT if tipo_base == 'produto' else ARQ_ACES_DAT
@@ -334,7 +318,6 @@ def inserir_registro(tipo_base: str, novo_bytes: bytes, target_id: int):
 
     print(f"\n[+] Registro ID {target_str} inserido com sucesso!")
 
-    # Reconstrução e atualização dinâmica do índice parcial
     if tipo_base == 'produto':
         indice_produtos = reconstruir_indice_parcial(arq_dados, arq_indice, tamanho_registro)
     else:
@@ -345,7 +328,6 @@ def inserir_registro(tipo_base: str, novo_bytes: bytes, target_id: int):
 
 
 def remover_registro_logico(tipo_base: str, target_id: int):
-    """Marca o registro com '*' via fseek e reconstrói o índice parcial."""
     global indice_produtos, indice_acessos
 
     arq_dados = ARQ_PROD_DAT if tipo_base == 'produto' else ARQ_ACES_DAT
@@ -364,7 +346,6 @@ def remover_registro_logico(tipo_base: str, target_id: int):
     high = total_registros - 1
     removido = False
 
-    # 1. Localiza e marca o registro no arquivo .dat
     with open(arq_dados, "r+b") as f:
         while low <= high:
             mid = (low + high) // 2
@@ -385,7 +366,6 @@ def remover_registro_logico(tipo_base: str, target_id: int):
             else:
                 high = mid - 1
 
-    # 2. Reconstrói o índice APÓS a remoção
     if removido:
         if tipo_base == 'produto':
             indice_produtos = reconstruir_indice_parcial(arq_dados, arq_indice, tamanho_registro)
@@ -399,11 +379,121 @@ def remover_registro_logico(tipo_base: str, target_id: int):
     return False
 
 
-# MENU
+# FUNÇÕES DAS PERGUNTAS ANALÍTICAS (STREAMING DIRECTO DO DISCO)
+def pergunta_marca_mais_produtos():
+    """Pergunta 1: Qual é a marca com o maior número de produtos cadastrados?"""
+    if not os.path.exists(ARQ_PROD_DAT):
+        print(f"\n[!] Arquivo '{ARQ_PROD_DAT}' não encontrado.")
+        return
+
+    contagem_marcas = {}
+    # Lista de valores genéricos a ignorar
+    valores_invalidos = {"sem_marca", "sem marca", "semmarca", "null", "none", "n/a", "undefined", "unknown", ""}
+
+    print(f"\n[->] Analisando '{ARQ_PROD_DAT}' em fluxo...")
+
+    with open(ARQ_PROD_DAT, "rb") as f:
+        while True:
+            reg_bytes = f.read(TAMANHO_REGISTRO_PRODUTO)
+            if not reg_bytes or len(reg_bytes) < TAMANHO_REGISTRO_PRODUTO:
+                break
+            
+            chave = reg_bytes[:TAMANHO_CHAVE].decode('utf-8')
+            if not chave.startswith('*'):  # Ignora registos removidos
+                dados = desformatar_produto(reg_bytes)
+                marca = dados["brand"].strip()
+                m_lower = marca.lower()
+
+                # Ignora qualquer variação de marca genérica ou ausente
+                if m_lower not in valores_invalidos and not m_lower.startswith("sem_") and not m_lower.startswith("sem "):
+                    contagem_marcas[marca] = contagem_marcas.get(marca, 0) + 1
+
+    if not contagem_marcas:
+        print("[-] Nenhum registro com marca válida foi encontrado.")
+        return
+
+    marca_lider = max(contagem_marcas, key=contagem_marcas.get)
+    qtd = contagem_marcas[marca_lider]
+
+    print("\n--- RESPOSTA DA PERGUNTA 1 ---")
+    print(f"Marca com maior número de produtos: '{marca_lider}'")
+    print(f"Total de produtos cadastrados: {qtd:,}".replace(",", "."))
+
+
+def pergunta_evento_mais_frequente():
+    """Pergunta 2: Qual o tipo de evento mais frequente na base de acessos?"""
+    if not os.path.exists(ARQ_ACES_DAT):
+        print(f"\n[!] Arquivo '{ARQ_ACES_DAT}' não encontrado.")
+        return
+
+    contagem_eventos = {}
+    print(f"\n[->] Analisando '{ARQ_ACES_DAT}' em fluxo...")
+
+    with open(ARQ_ACES_DAT, "rb") as f:
+        while True:
+            reg_bytes = f.read(TAMANHO_REGISTRO_ACESSO)
+            if not reg_bytes or len(reg_bytes) < TAMANHO_REGISTRO_ACESSO:
+                break
+            
+            chave = reg_bytes[:TAMANHO_CHAVE].decode('utf-8')
+            if not chave.startswith('*'):  # Ignora removidos
+                dados = desformatar_acesso(reg_bytes)
+                tipo_evento = dados["event_type"]
+                contagem_eventos[tipo_evento] = contagem_eventos.get(tipo_evento, 0) + 1
+
+    if not contagem_eventos:
+        print("[-] Nenhum registro válido encontrado.")
+        return
+
+    evento_lider = max(contagem_eventos, key=contagem_eventos.get)
+    
+    print("\n--- RESPOSTA DA PERGUNTA 2 ---")
+    print(f"Tipo de evento mais frequente: '{evento_lider}' ({contagem_eventos[evento_lider]:,} ocorrências)".replace(",", "."))
+    print("Detalhamento de todos os eventos:")
+    for evt, total in contagem_eventos.items():
+        print(f"  - {evt}: {total:,}".replace(",", "."))
+
+
+def pergunta_produto_maior_preco():
+    """Pergunta 3: Qual é o produto de maior valor (preço mais alto) cadastrado?"""
+    if not os.path.exists(ARQ_PROD_DAT):
+        print(f"\n[!] Arquivo '{ARQ_PROD_DAT}' não encontrado.")
+        return
+
+    maior_preco = -1.0
+    produto_mais_caro = None
+    print(f"\n[->] Analisando '{ARQ_PROD_DAT}' em fluxo...")
+
+    with open(ARQ_PROD_DAT, "rb") as f:
+        while True:
+            reg_bytes = f.read(TAMANHO_REGISTRO_PRODUTO)
+            if not reg_bytes or len(reg_bytes) < TAMANHO_REGISTRO_PRODUTO:
+                break
+            
+            chave = reg_bytes[:TAMANHO_CHAVE].decode('utf-8')
+            if not chave.startswith('*'):  # Ignora removidos
+                dados = desformatar_produto(reg_bytes)
+                preco = dados["price"]
+                if preco > maior_preco:
+                    maior_preco = preco
+                    produto_mais_caro = dados
+
+    if not produto_mais_caro:
+        print("[-] Nenhum registro válido encontrado.")
+        return
+
+    print("\n--- RESPOSTA DA PERGUNTA 3 ---")
+    print("Produto com o maior valor cadastrado:")
+    print(f"  - ID do Produto: {produto_mais_caro['product_id']}")
+    print(f"  - Marca:         {produto_mais_caro['brand']}")
+    print(f"  - Categoria:     {produto_mais_caro['category_code']}")
+    print(f"  - Preço:         $ {produto_mais_caro['price']:.2f}")
+
+
+# MENU INTERATIVO NO TERMINAL
 def menu_principal():
     global indice_produtos, indice_acessos
 
-    # Inicialização: carrega índices existentes no disco ao abrir o programa
     indice_produtos = carregar_indice_parcial(ARQ_PROD_IDX)
     indice_acessos = carregar_indice_parcial(ARQ_ACES_IDX)
 
@@ -411,19 +501,20 @@ def menu_principal():
         print("\n==================================================================")
         print("     SISTEMA DE ORGANIZAÇÃO SEQUENCIAL-INDEXADO DE ARQUIVOS")
         print("==================================================================")
-        print("1. Inserir dados iniciais")
+        print("1. Inserir dados iniciais (Gerar .dat e .idx dos CSVs)")
         print("2. Mostrar dados (Parcial ou Total)")
-        print("3. Pesquisa Binária DIRETA no arquivo de dados")
-        print("4. Consulta por ÍNDICE PARCIAL")
+        print("3. Pesquisa Binária DIRETA no arquivo de dados (.dat)")
+        print("4. Consulta por ÍNDICE PARCIAL (.idx + fseek)")
         print("5. Inserir novo registro")
         print("6. Remover registro")
+        print("7. Perguntas")
         print("0. Sair do programa")
         print("------------------------------------------------------------------")
         
         opcao = input("Escolha uma opção: ").strip()
 
         if opcao == "0":
-            print("\n[+] Salvando índices e encerrando o programa... Até logo!")
+            print("\n[+] Salvando índices e encerrando o programa")
             salvar_indice_parcial(ARQ_PROD_IDX, indice_produtos)
             salvar_indice_parcial(ARQ_ACES_IDX, indice_acessos)
             break
@@ -486,6 +577,22 @@ def menu_principal():
             elif opcao == "6":
                 target_id = int(input(f"Digite o ID do {tipo_base} a ser REMOVIDO: "))
                 remover_registro_logico(tipo_base, target_id)
+
+        elif opcao == "7":
+            print("\n--- PERGUNTAS ---")
+            print("1. Marca com maior número de produtos cadastrados")
+            print("2. Tipo de evento mais frequente")
+            print("3. Produto de maior valor (preço mais alto)")
+            
+            sub_op = input("Escolha a consulta (1, 2 ou 3): ").strip()
+            if sub_op == "1":
+                pergunta_marca_mais_produtos()
+            elif sub_op == "2":
+                pergunta_evento_mais_frequente()
+            elif sub_op == "3":
+                pergunta_produto_maior_preco()
+            else:
+                print("[!] Consulta inválida.")
 
         else:
             print("\n[!] Opção inválida. Tente novamente.")
