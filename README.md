@@ -4,6 +4,8 @@ Trabalho prático desenvolvido para a disciplina de Algoritmos e Estruturas de D
 
 Todas as operações de consulta, inserção e remoção são feitas diretamente em memória secundária através de navegação por *offset* (`fseek`), sem carregar a totalidade dos dados para a memória RAM.
 
+Para teste, o conjunto de dados é reduzido, para até 100.000 linhas. Conjunto de acessos chega a quase 200.000 pois são dois arquivos. Já o de produtos chega a menos de 40.000, pois há muitos Id repetidos.
+
 ---
 
 ## Funcionalidades
