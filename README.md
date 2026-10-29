@@ -27,8 +27,8 @@ Todas as operações de consulta, inserção e remoção são feitas diretamente
 
 ## Como Executar
 
-1. Coloque os ficheiros CSV originais na mesma pasta do projeto.
-2. Execute o programa:
+1. Colocar os ficheiros CSV originais na mesma pasta do projeto.
+2. Executar o programa:
 
 ```bash
-python consulta.py
+py consulta.py
