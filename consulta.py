@@ -2,30 +2,24 @@ import csv
 import os
 import shutil
 
-# ==============================================================================
-# CONFIGURAÇÕES E TAMANHOS DE REGISTROS (TAMANHO FIXO COM '\n')
-# ==============================================================================
 # Registros de Produtos: 10 (id) + 20 (brand) + 10 (price) + 30 (cat) + 1 (\n) = 71 bytes
 TAMANHO_REGISTRO_PRODUTO = 71
 # Registros de Acessos: 10 (id) + 12 (type) + 10 (prod_id) + 10 (user_id) + 1 (\n) = 43 bytes
 TAMANHO_REGISTRO_ACESSO = 43
 
 TAMANHO_CHAVE = 10
-INTERVALO_BLOCO_INDICE = 20  # Grava 1 chave no índice parcial a cada 20 registros
+INTERVALO_BLOCO_INDICE = 20
 
 ARQ_PROD_DAT = "produtos.dat"
 ARQ_PROD_IDX = "produtos.idx"
 ARQ_ACES_DAT = "acessos.dat"
 ARQ_ACES_IDX = "acessos.idx"
 
-# Estruturas em memória RAM para os índices parciais: list de tuplas (chave_str, offset_byte)
 indice_produtos = []
 indice_acessos = []
 
 
-# ==============================================================================
 # FORMATADORES E PARSERS DE REGISTROS
-# ==============================================================================
 def formatar_produto(p_id: int, brand: str, price: float, category: str) -> bytes:
     p_id_str = f"{int(p_id):010d}"
     brand_str = f"{brand[:20]:<20}"
@@ -62,9 +56,7 @@ def desformatar_acesso(registro_bytes: bytes) -> dict:
     }
 
 
-# ==============================================================================
 # PERSISTÊNCIA E MANIPULAÇÃO DE ÍNDICES PARCIAIS
-# ==============================================================================
 def carregar_indice_parcial(arq_indice: str) -> list:
     """Carrega o arquivo de índice parcial .idx para a memória RAM se ele existir."""
     indice = []
@@ -110,9 +102,7 @@ def reconstruir_indice_parcial(arq_dados: str, arq_indice: str, tamanho_registro
     return novo_indice
 
 
-# ==============================================================================
 # OPERAÇÕES PRINCIPAIS DO SISTEMA
-# ==============================================================================
 def inserir_dados_iniciais(arquivos_csv: list = None, max_linhas_por_arquivo: int = 100000):
     """
     1) INSERIR DADOS INICIAIS:
@@ -409,9 +399,7 @@ def remover_registro_logico(tipo_base: str, target_id: int):
     return False
 
 
-# ==============================================================================
-# MENU INTERATIVO NO TERMINAL
-# ==============================================================================
+# MENU
 def menu_principal():
     global indice_produtos, indice_acessos
 
@@ -423,12 +411,12 @@ def menu_principal():
         print("\n==================================================================")
         print("     SISTEMA DE ORGANIZAÇÃO SEQUENCIAL-INDEXADO DE ARQUIVOS")
         print("==================================================================")
-        print("1. Inserir dados iniciais (Gerar .dat e .idx dos CSVs)")
+        print("1. Inserir dados iniciais")
         print("2. Mostrar dados (Parcial ou Total)")
-        print("3. Pesquisa Binária DIRETA no arquivo de dados (.dat)")
-        print("4. Consulta por ÍNDICE PARCIAL (.idx + fseek)")
-        print("5. Inserir novo registro (com reconstrução do índice)")
-        print("6. Remover registro (com reconstrução do índice)")
+        print("3. Pesquisa Binária DIRETA no arquivo de dados")
+        print("4. Consulta por ÍNDICE PARCIAL")
+        print("5. Inserir novo registro")
+        print("6. Remover registro")
         print("0. Sair do programa")
         print("------------------------------------------------------------------")
         
