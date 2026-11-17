@@ -2,7 +2,6 @@ import bisect
 import os
 import shutil
 import time
-import zlib
 
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS E TAMANHOS DE REGISTROS (TAMANHO FIXO COM '\n')
@@ -45,7 +44,7 @@ tabela_hash_acessos = None
 
 
 # ==============================================================================
-# CRIPTOGRAFIA SIMÉTRICA DE TAMANHO FIXO E COMPRESSÃO (ZLIB)
+# CRIPTOGRAFIA SIMÉTRICA DE TAMANHO FIXO
 # ==============================================================================
 def criptografar_payload(dados: bytes) -> bytes:
     """
@@ -138,7 +137,6 @@ def criar_copias_criptografadas():
         tam_payload = tam_reg - 1
         total_regs = 0
 
-        # Lê o original linha a linha (tratando \r\n do Windows) sem nunca alterá-lo
         with open(arq_orig, "rb") as f_in, open(arq_dest, "wb") as f_out:
             for linha in f_in:
                 payload = linha.rstrip(b"\r\n")
@@ -155,7 +153,6 @@ def criar_copias_criptografadas():
         print(f"[+] {nome}: '{arq_orig}' (intacto) -> '{arq_dest}'")
         print(f"    Registros: {total_regs:,} | Tamanho: {os.path.getsize(arq_dest):,} bytes | Tempo: {dt_ms:.2f} ms".replace(",", "."))
 
-    # Reconstrói os índices em disco (.idx) a partir das cópias criptografadas
     print("\n[->] Gerando arquivos de índices em disco (.idx) para as cópias criptografadas...")
     if os.path.exists(ARQ_PROD_DAT):
         indice_produtos = reconstruir_indice_parcial(ARQ_PROD_DAT, ARQ_PROD_IDX, TAMANHO_REGISTRO_PRODUTO)
@@ -166,54 +163,12 @@ def criar_copias_criptografadas():
         reconstruir_indice_exaustivo_acessos_prod()
         print(f"[+] '{ARQ_ACES_IDX}' ({len(indice_acessos):,} blocos) e '{ARQ_ACES_PROD_IDX}' (exaustivo) gerados.".replace(",", "."))
 
-    # Constrói os índices em memória (Árvore B+ e Tabela Hash) a partir das cópias criptografadas
     if os.path.exists(ARQ_PROD_DAT):
         construir_arvore_b_mais_produtos()
     if os.path.exists(ARQ_ACES_DAT):
         construir_tabela_hash_acessos()
 
     return True
-
-
-def comprimir_arquivos_dados():
-    """Comprime as cópias criptografadas .dat usando zlib e exibe as taxas de compressão."""
-    print("\n--- COMPRESSÃO DAS CÓPIAS CRIPTOGRAFADAS (ZLIB) ---")
-    for arq in [ARQ_PROD_DAT, ARQ_ACES_DAT]:
-        if not os.path.exists(arq):
-            print(f"[!] '{arq}' não encontrado. Execute a Opção 1 primeiro.")
-            continue
-        arq_comp = arq + ".zlib"
-        t0 = time.perf_counter()
-        with open(arq, "rb") as f_in:
-            dados_originais = f_in.read()
-        dados_comprimidos = zlib.compress(dados_originais, level=6)
-        with open(arq_comp, "wb") as f_out:
-            f_out.write(dados_comprimidos)
-        dt = (time.perf_counter() - t0) * 1000
-
-        tam_orig = len(dados_originais)
-        tam_comp = len(dados_comprimidos)
-        reducao = (1 - (tam_comp / tam_orig)) * 100 if tam_orig > 0 else 0
-        print(f"[+] {arq} -> {arq_comp}")
-        print(f"    Original: {tam_orig:,} bytes | Comprimido: {tam_comp:,} bytes | Redução: {reducao:.2f}% ({dt:.2f} ms)".replace(",", "."))
-
-
-def descomprimir_arquivos_dados():
-    """Descomprime arquivos .zlib restaurando as cópias criptografadas."""
-    print("\n--- DESCOMPRESSÃO DAS CÓPIAS CRIPTOGRAFADAS (ZLIB) ---")
-    for arq in [ARQ_PROD_DAT, ARQ_ACES_DAT]:
-        arq_comp = arq + ".zlib"
-        if not os.path.exists(arq_comp):
-            print(f"[!] Arquivo compactado '{arq_comp}' não encontrado.")
-            continue
-        t0 = time.perf_counter()
-        with open(arq_comp, "rb") as f_in:
-            dados_comprimidos = f_in.read()
-        dados_originais = zlib.decompress(dados_comprimidos)
-        with open(arq, "wb") as f_out:
-            f_out.write(dados_originais)
-        dt = (time.perf_counter() - t0) * 1000
-        print(f"[+] '{arq_comp}' descomprimido para '{arq}' ({len(dados_originais):,} bytes) em {dt:.2f} ms".replace(",", "."))
 
 
 # ==============================================================================
@@ -1164,7 +1119,6 @@ def menu_principal():
         print("7. Remover registro (atualiza cópia criptografada, .idx e RAM)")
         print("8. Perguntas Analíticas (Trabalho I)")
         print("9. Executar Benchmark Comparativo (Arquivo vs Memória)")
-        print("10. Comprimir / Descomprimir cópias criptografadas (.zlib)")
         print("0. Sair do programa")
         print("------------------------------------------------------------------")
 
@@ -1278,15 +1232,6 @@ def menu_principal():
 
         elif opcao == "9":
             executar_benchmark_comparativo()
-
-        elif opcao == "10":
-            print("\n  1. Comprimir cópias criptografadas (.zlib)")
-            print("  2. Descomprimir cópias criptografadas (.zlib)")
-            sub_c = input("Escolha (1 ou 2): ").strip()
-            if sub_c == "1":
-                comprimir_arquivos_dados()
-            elif sub_c == "2":
-                descomprimir_arquivos_dados()
 
         else:
             print("\n[!] Opção inválida.")
