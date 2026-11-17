@@ -3,9 +3,6 @@ import os
 import shutil
 import time
 
-# ==============================================================================
-# CONFIGURAÇÕES GERAIS E TAMANHOS DE REGISTROS (TAMANHO FIXO COM '\n')
-# ==============================================================================
 # Registros de Produtos: 10 (id) + 20 (brand) + 10 (price) + 30 (cat) + 1 (\n) = 71 bytes
 TAMANHO_REGISTRO_PRODUTO = 71
 # Registros de Acessos: 10 (id) + 12 (type) + 10 (prod_id) + 10 (user_id) + 1 (\n) = 43 bytes
@@ -25,7 +22,6 @@ CAPACIDADE_TABELA_HASH = 50021
 # Chave simétrica para criptografia dos arquivos .dat
 CHAVE_CRIPTO = b"AED2_TRABALHO2_2026"
 
-# Arquivos ORIGINAIS do Trabalho I (mantidos intactos — somente leitura na Opção 1)
 ARQ_PROD_ORIG = "produtos.dat"
 ARQ_ACES_ORIG = "acessos.dat"
 
@@ -43,14 +39,8 @@ arvore_b_mais_produtos = None
 tabela_hash_acessos = None
 
 
-# ==============================================================================
-# CRIPTOGRAFIA SIMÉTRICA DE TAMANHO FIXO
-# ==============================================================================
+
 def criptografar_payload(dados: bytes) -> bytes:
-    """
-    Criptografa os bytes do registro mantendo rigorosamente o mesmo tamanho em bytes
-    e evitando gerar 0x0A ('\n') ou 0x2A ('*'), preservando a navegação por fseek().
-    """
     resultado = bytearray(len(dados))
     k_len = len(CHAVE_CRIPTO)
     for i, b in enumerate(dados):
@@ -68,7 +58,6 @@ def criptografar_payload(dados: bytes) -> bytes:
 
 
 def descriptografar_payload(dados_cifrados: bytes) -> bytes:
-    """Reverte a criptografia de um bloco de registro lido do disco."""
     resultado = bytearray(len(dados_cifrados))
     k_len = len(CHAVE_CRIPTO)
     for i, b in enumerate(dados_cifrados):
@@ -86,17 +75,14 @@ def descriptografar_payload(dados_cifrados: bytes) -> bytes:
 
 
 def criptografar_registro(registro_plano: bytes) -> bytes:
-    """Criptografa o conteúdo mantendo o '\n' final intacto."""
     return criptografar_payload(registro_plano[:-1]) + b"\n"
 
 
 def descriptografar_registro(registro_cifrado: bytes) -> bytes:
-    """Descriptografa o conteúdo mantendo o '\n' final."""
     return descriptografar_payload(registro_cifrado[:-1]) + b"\n"
 
 
 def extrair_chave_registro(reg_bytes: bytes) -> str:
-    """Descriptografa e extrai a chave primária (10 bytes), retornando '*' se removido."""
     if reg_bytes.startswith(b"*"):
         return "*"
     raw_chave = descriptografar_payload(reg_bytes[:TAMANHO_CHAVE])
@@ -107,11 +93,7 @@ def extrair_chave_registro(reg_bytes: bytes) -> str:
 
 
 def criar_copias_criptografadas():
-    """
-    Lê os arquivos originais 'produtos.dat' e 'acessos.dat' em modo somente leitura,
-    mantendo-os 100% intactos, gera as cópias 'produtos_criptografado.dat' e
-    'acessos_criptografado.dat' e constrói todos os índices em disco e na RAM.
-    """
+  
     global indice_produtos, indice_acessos
 
     bases = [
@@ -125,7 +107,7 @@ def criar_copias_criptografadas():
         return False
 
     print("\n==================================================================")
-    print("  GERANDO CÓPIAS CRIPTOGRAFADAS (ORIGINAIS MANTIDOS INTACTOS)       ")
+    print("  GERANDO CÓPIAS CRIPTOGRAFADAS       ")
     print("==================================================================")
 
     for nome, arq_orig, arq_dest, tam_reg in bases:
@@ -171,9 +153,7 @@ def criar_copias_criptografadas():
     return True
 
 
-# ==============================================================================
-# FORMATADORES E PARSERS DE REGISTROS CRIPTOGRAFADOS
-# ==============================================================================
+
 def formatar_produto(p_id: int, brand: str, price: float, category: str) -> bytes:
     p_id_str = f"{int(p_id):010d}"
     brand_str = f"{brand[:20]:<20}"
@@ -219,9 +199,6 @@ def desformatar_acesso(registro_bytes: bytes) -> dict:
     }
 
 
-# ==============================================================================
-# ESTRUTURAS DE ÍNDICE EM MEMÓRIA (TRABALHO II): ÁRVORE B+ E TABELA HASH
-# ==============================================================================
 class NoBMais:
     def __init__(self, folha: bool = False):
         self.folha = folha
@@ -406,9 +383,6 @@ class TabelaHash:
         return False
 
 
-# ==============================================================================
-# CONSTRUÇÃO DOS ÍNDICES EM MEMÓRIA A PARTIR DAS CÓPIAS CRIPTOGRAFADAS
-# ==============================================================================
 def construir_arvore_b_mais_produtos():
     """Lê produtos_criptografado.dat em fluxo e constrói a Árvore B+ na RAM."""
     global arvore_b_mais_produtos
@@ -466,9 +440,6 @@ def construir_tabela_hash_acessos():
     return tempo_ms
 
 
-# ==============================================================================
-# PERSISTÊNCIA E MANIPULAÇÃO DE ÍNDICES EM ARQUIVO (.IDX)
-# ==============================================================================
 def carregar_indice_parcial(arq_indice: str) -> list:
     indice = []
     if os.path.exists(arq_indice):
@@ -540,9 +511,6 @@ def reconstruir_indice_exaustivo_acessos_prod():
     return (time.perf_counter() - t0) * 1000
 
 
-# ==============================================================================
-# OPERAÇÕES DE EXIBIÇÃO, BUSCA E ATUALIZAÇÃO NAS CÓPIAS CRIPTOGRAFADAS
-# ==============================================================================
 def mostrar_dados(arq_dados: str, tamanho_registro: int, parser_fn, inicio: int, qtd: int):
     if not os.path.exists(arq_dados):
         print(f"\n[!] Erro: '{arq_dados}' não existe. Execute a Opção 1 para gerar a cópia criptografada.")
@@ -801,7 +769,7 @@ def consultar_acessos_por_produto_hash(target_prod_id: int, silencioso: bool = F
 
 
 def inserir_registro(tipo_base: str, novo_bytes: bytes, target_id: int):
-    """Insere registro criptografado na cópia (.dat) mantendo o arquivo original intacto."""
+    """Insere registro criptografado na cópia (.dat)."""
     global indice_produtos, indice_acessos
 
     arq_dados = ARQ_PROD_DAT if tipo_base == "produto" else ARQ_ACES_DAT
@@ -840,7 +808,7 @@ def inserir_registro(tipo_base: str, novo_bytes: bytes, target_id: int):
 
         shutil.move(arq_temp, arq_dados)
 
-    print(f"\n[+] Registro ID {target_str} inserido em '{arq_dados}' (arquivo original intacto)!")
+    print(f"\n[+] Registro ID {target_str} inserido em '{arq_dados}'!")
 
     t0_idx = time.perf_counter()
     if tipo_base == "produto":
@@ -859,7 +827,7 @@ def inserir_registro(tipo_base: str, novo_bytes: bytes, target_id: int):
 
 
 def remover_registro_logico(tipo_base: str, target_id: int):
-    """Remove logicamente ('*') na cópia criptografada mantendo o arquivo original intacto."""
+    """Remove logicamente ('*') na cópia criptografada."""
     global indice_produtos, indice_acessos
 
     arq_dados = ARQ_PROD_DAT if tipo_base == "produto" else ARQ_ACES_DAT
@@ -935,10 +903,6 @@ def remover_registro_logico(tipo_base: str, target_id: int):
     print(f"\n[-] Erro: Registro ID {target_str} não encontrado em '{arq_dados}'.")
     return False
 
-
-# ==============================================================================
-# BENCHMARK COMPARATIVO (ITEM 3.2 DO TRABALHO II)
-# ==============================================================================
 def executar_benchmark_comparativo():
     """Executa 5 consultas reais nas cópias criptografadas comparando Índices de Arquivo vs Memória."""
     if not os.path.exists(ARQ_PROD_DAT) or not os.path.exists(ARQ_ACES_DAT):
@@ -988,9 +952,6 @@ def executar_benchmark_comparativo():
     print("==================================================================================")
 
 
-# ==============================================================================
-# CONSULTAS ANALÍTICAS DO TRABALHO I (STREAMING NAS CÓPIAS CRIPTOGRAFADAS)
-# ==============================================================================
 def pergunta_marca_mais_produtos():
     if not os.path.exists(ARQ_PROD_DAT):
         print(f"\n[!] '{ARQ_PROD_DAT}' não encontrado. Execute a Opção 1 primeiro.")
@@ -1083,9 +1044,6 @@ def pergunta_produto_maior_preco():
     print(f"  - Preço:         $ {produto_mais_caro['price']:.2f}")
 
 
-# ==============================================================================
-# MENU INTERATIVO
-# ==============================================================================
 def menu_principal():
     global indice_produtos, indice_acessos
 
@@ -1111,14 +1069,14 @@ def menu_principal():
         print("   ORGANIZAÇÃO SEQUENCIAL-INDEXADA + ÁRVORE B+ E TABELA HASH      ")
         print("==================================================================")
         print("1. Criar cópias criptografadas (*_criptografado.dat) e gerar índices")
-        print("2. Mostrar dados (das cópias criptografadas)")
-        print("3. Pesquisa Binária DIRETA na cópia criptografada (.dat)")
+        print("2. Mostrar dados")
+        print("3. Pesquisa Binária DIRETA (.dat)")
         print("4. Consulta por ÍNDICE EM ARQUIVO (.idx)")
         print("5. Consulta por ÍNDICE EM MEMÓRIA (Árvore B+ / Tabela Hash)")
-        print("6. Inserir novo registro (atualiza cópia criptografada, .idx e RAM)")
-        print("7. Remover registro (atualiza cópia criptografada, .idx e RAM)")
-        print("8. Perguntas Analíticas (Trabalho I)")
-        print("9. Executar Benchmark Comparativo (Arquivo vs Memória)")
+        print("6. Inserir novo registro")
+        print("7. Remover registro")
+        print("8. Perguntas Analíticas")
+        print("9. Executar Benchmark Comparativo")
         print("0. Sair do programa")
         print("------------------------------------------------------------------")
 
@@ -1134,7 +1092,7 @@ def menu_principal():
             criar_copias_criptografadas()
 
         elif opcao in ["2", "3", "4", "6", "7"]:
-            print("\nSelecione a base (cópia criptografada):")
+            print("\nSelecione a base:")
             print(f"  1. Produtos ({ARQ_PROD_DAT})")
             print(f"  2. Acessos  ({ARQ_ACES_DAT})")
             sel_base = input("Escolha (1 ou 2): ").strip()
