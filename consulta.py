@@ -3,6 +3,9 @@ import os
 import shutil
 import time
 
+# ==============================================================================
+# CONFIGURAÇÕES GERAIS E CONSTANTES
+# ==============================================================================
 # Registros de Produtos: 10 (id) + 20 (brand) + 10 (price) + 30 (cat) + 1 (\n) = 71 bytes
 TAMANHO_REGISTRO_PRODUTO = 71
 # Registros de Acessos: 10 (id) + 12 (type) + 10 (prod_id) + 10 (user_id) + 1 (\n) = 43 bytes
@@ -22,10 +25,11 @@ CAPACIDADE_TABELA_HASH = 50021
 # Chave simétrica para criptografia dos arquivos .dat
 CHAVE_CRIPTO = b"AED2_TRABALHO2_2026"
 
+# Arquivos originais (somente leitura na Opção 1)
 ARQ_PROD_ORIG = "produtos.dat"
 ARQ_ACES_ORIG = "acessos.dat"
 
-# Cópias CRIPTOGRAFADAS onde TODAS as operações são realizadas
+# Cópias criptografadas e seus respectivos índices em disco
 ARQ_PROD_DAT = "produtos_criptografado.dat"
 ARQ_PROD_IDX = "produtos_criptografado.idx"
 ARQ_ACES_DAT = "acessos_criptografado.dat"
@@ -39,8 +43,11 @@ arvore_b_mais_produtos = None
 tabela_hash_acessos = None
 
 
-
+# ==============================================================================
+# CRIPTOGRAFIA SIMÉTRICA DE TAMANHO FIXO
+# ==============================================================================
 def criptografar_payload(dados: bytes) -> bytes:
+    """Criptografa bytes preservando o tamanho fixo e evitando '\\n' (10) e '*' (42)."""
     resultado = bytearray(len(dados))
     k_len = len(CHAVE_CRIPTO)
     for i, b in enumerate(dados):
@@ -58,6 +65,7 @@ def criptografar_payload(dados: bytes) -> bytes:
 
 
 def descriptografar_payload(dados_cifrados: bytes) -> bytes:
+    """Reverte a criptografia de um bloco de registro lido do disco."""
     resultado = bytearray(len(dados_cifrados))
     k_len = len(CHAVE_CRIPTO)
     for i, b in enumerate(dados_cifrados):
@@ -83,6 +91,7 @@ def descriptografar_registro(registro_cifrado: bytes) -> bytes:
 
 
 def extrair_chave_registro(reg_bytes: bytes) -> str:
+    """Descriptografa e retorna a chave primária (10 bytes), ou '*' se removido."""
     if reg_bytes.startswith(b"*"):
         return "*"
     raw_chave = descriptografar_payload(reg_bytes[:TAMANHO_CHAVE])
@@ -93,7 +102,7 @@ def extrair_chave_registro(reg_bytes: bytes) -> str:
 
 
 def criar_copias_criptografadas():
-  
+    """Gera cópias criptografadas dos arquivos originais e reconstrói todos os índices."""
     global indice_produtos, indice_acessos
 
     bases = [
@@ -107,7 +116,7 @@ def criar_copias_criptografadas():
         return False
 
     print("\n==================================================================")
-    print("  GERANDO CÓPIAS CRIPTOGRAFADAS       ")
+    print("  GERANDO CÓPIAS CRIPTOGRAFADAS                                   ")
     print("==================================================================")
 
     for nome, arq_orig, arq_dest, tam_reg in bases:
@@ -153,7 +162,9 @@ def criar_copias_criptografadas():
     return True
 
 
-
+# ==============================================================================
+# FORMATADORES E PARSERS DE REGISTROS
+# ==============================================================================
 def formatar_produto(p_id: int, brand: str, price: float, category: str) -> bytes:
     p_id_str = f"{int(p_id):010d}"
     brand_str = f"{brand[:20]:<20}"
@@ -175,7 +186,7 @@ def desformatar_produto(registro_bytes: bytes) -> dict:
         "product_id": texto[0:10].strip(),
         "brand": texto[10:30].strip(),
         "price": preco,
-        "category_code": texto[40:70].strip()
+        "category_code": texto[40:70].strip(),
     }
 
 
@@ -195,10 +206,13 @@ def desformatar_acesso(registro_bytes: bytes) -> dict:
         "event_id": texto[0:10].strip(),
         "event_type": texto[10:22].strip(),
         "product_id": texto[22:32].strip(),
-        "user_id": texto[32:42].strip()
+        "user_id": texto[32:42].strip(),
     }
 
 
+# ==============================================================================
+# ÍNDICES EM MEMÓRIA RAM: ÁRVORE B+ E TABELA HASH
+# ==============================================================================
 class NoBMais:
     def __init__(self, folha: bool = False):
         self.folha = folha
@@ -212,6 +226,7 @@ class ArvoreBMais:
     Índice em memória via Árvore B+ para produtos_criptografado.dat (chave: product_id).
     Ordem definida pelo tamanho de bloco/página (4096B / 32B = 128).
     """
+
     def __init__(self, ordem: int = ORDEM_ARVORE_BMAIS):
         self.ordem = ordem
         self.raiz = NoBMais(folha=True)
@@ -315,6 +330,7 @@ class TabelaHash:
     Índice em memória via Tabela Hash para acessos_criptografado.dat (coluna não-chave: product_id).
     Resolução de colisões por Encadeamento Separado (Separate Chaining).
     """
+
     def __init__(self, capacidade: int = CAPACIDADE_TABELA_HASH):
         self.capacidade = capacidade
         self.buckets = [None] * capacidade
@@ -383,7 +399,7 @@ class TabelaHash:
         return False
 
 
-def construir_arvore_b_mais_produtos():
+def construir_arvore_b_mais_produtos() -> float:
     """Lê produtos_criptografado.dat em fluxo e constrói a Árvore B+ na RAM."""
     global arvore_b_mais_produtos
     if not os.path.exists(ARQ_PROD_DAT):
@@ -410,7 +426,7 @@ def construir_arvore_b_mais_produtos():
     return tempo_ms
 
 
-def construir_tabela_hash_acessos():
+def construir_tabela_hash_acessos() -> float:
     """Lê acessos_criptografado.dat em fluxo e constrói a Tabela Hash sobre product_id."""
     global tabela_hash_acessos
     if not os.path.exists(ARQ_ACES_DAT):
@@ -440,6 +456,9 @@ def construir_tabela_hash_acessos():
     return tempo_ms
 
 
+# ==============================================================================
+# MANIPULAÇÃO DE ÍNDICES EM DISCO (.IDX)
+# ==============================================================================
 def carregar_indice_parcial(arq_indice: str) -> list:
     indice = []
     if os.path.exists(arq_indice):
@@ -481,11 +500,8 @@ def reconstruir_indice_parcial(arq_dados: str, arq_indice: str, tamanho_registro
     return novo_indice
 
 
-def reconstruir_indice_exaustivo_acessos_prod():
-    """
-    Gera/atualiza o índice exaustivo secundário (acessos_criptografado_prod.idx)
-    ordenado por product_id a partir de acessos_criptografado.dat.
-    """
+def reconstruir_indice_exaustivo_acessos_prod() -> float:
+    """Atualiza o índice exaustivo secundário ordenado por product_id."""
     if not os.path.exists(ARQ_ACES_DAT):
         return 0.0
 
@@ -511,6 +527,9 @@ def reconstruir_indice_exaustivo_acessos_prod():
     return (time.perf_counter() - t0) * 1000
 
 
+# ==============================================================================
+# OPERAÇÕES DE LEITURA, CONSULTA, INSERÇÃO E REMOÇÃO
+# ==============================================================================
 def mostrar_dados(arq_dados: str, tamanho_registro: int, parser_fn, inicio: int, qtd: int):
     if not os.path.exists(arq_dados):
         print(f"\n[!] Erro: '{arq_dados}' não existe. Execute a Opção 1 para gerar a cópia criptografada.")
@@ -535,10 +554,7 @@ def mostrar_dados(arq_dados: str, tamanho_registro: int, parser_fn, inicio: int,
 
 
 def _ler_registro_ativo_proximo(f, mid: int, low: int, high: int, tamanho_registro: int):
-    """
-    Quando o meio da busca binária cai em um registro logicamente removido ('*'),
-    localiza o registro ativo mais próximo dentro de [low, high].
-    """
+    """Localiza o registro ativo mais próximo quando o pivô da busca binária foi removido."""
     esq, dir_ = mid - 1, mid + 1
     while esq >= low or dir_ <= high:
         if esq >= low:
@@ -601,12 +617,11 @@ def pesquisa_binaria_direta(arq_dados: str, target_id: int, tamanho_registro: in
     return None
 
 
-def consultar_por_indice_arquivo(arq_dados: str, indice_ram: list, target_id: int, tamanho_registro: int, parser_fn, silencioso: bool = False):
+def consultar_por_indice_arquivo(arq_dados: str, indice_ram: list, target_id: int, tamanho_registro: int, parser_fn):
     """Consulta usando o índice parcial em arquivo (.idx) + seek() na cópia criptografada."""
     if not os.path.exists(arq_dados) or not indice_ram:
-        if not silencioso:
-            print("\n[!] Erro: Cópia criptografada ou índice parcial não disponível. Execute a Opção 1.")
-        return None, 0.0
+        print("\n[!] Erro: Cópia criptografada ou índice parcial não disponível. Execute a Opção 1.")
+        return None
 
     t0 = time.perf_counter()
     target_str = f"{int(target_id):010d}"
@@ -640,24 +655,21 @@ def consultar_por_indice_arquivo(arq_dados: str, indice_ram: list, target_id: in
 
             if chave_atual == target_str:
                 dt_us = (time.perf_counter() - t0) * 1_000_000
-                if not silencioso:
-                    print(f"\n[+] Índice Arquivo: Encontrado em {dt_us:.2f} µs (Comp. idx: {comp_idx} | Comp. dat: {comp_dat})")
-                return parser_fn(reg_bytes), dt_us
+                print(f"\n[+] Índice Arquivo: Encontrado em {dt_us:.2f} µs (Comp. idx: {comp_idx} | Comp. dat: {comp_dat})")
+                return parser_fn(reg_bytes)
             elif chave_atual > target_str and not chave_atual.startswith("*"):
                 break
 
     dt_us = (time.perf_counter() - t0) * 1_000_000
-    if not silencioso:
-        print(f"\n[-] Registro ID {target_str} não encontrado ({dt_us:.2f} µs).")
-    return None, dt_us
+    print(f"\n[-] Registro ID {target_str} não encontrado ({dt_us:.2f} µs).")
+    return None
 
 
-def consultar_produto_arvore_b_mais(target_id: int, silencioso: bool = False):
+def consultar_produto_arvore_b_mais(target_id: int):
     """Consulta produto usando a Árvore B+ em memória + seek() em produtos_criptografado.dat."""
     if arvore_b_mais_produtos is None or not os.path.exists(ARQ_PROD_DAT):
-        if not silencioso:
-            print("\n[!] Árvore B+ ou cópia criptografada não disponível. Execute a Opção 1.")
-        return None, 0.0
+        print("\n[!] Árvore B+ ou cópia criptografada não disponível. Execute a Opção 1.")
+        return None
 
     t0 = time.perf_counter()
     target_str = f"{int(target_id):010d}"
@@ -669,22 +681,19 @@ def consultar_produto_arvore_b_mais(target_id: int, silencioso: bool = False):
             reg_bytes = f.read(TAMANHO_REGISTRO_PRODUTO)
             dados = desformatar_produto(reg_bytes)
         dt_us = (time.perf_counter() - t0) * 1_000_000
-        if not silencioso:
-            print(f"\n[+] Árvore B+ (Memória): Encontrado no offset {offset} em {dt_us:.2f} µs!")
-        return dados, dt_us
+        print(f"\n[+] Árvore B+ (Memória): Encontrado no offset {offset} em {dt_us:.2f} µs!")
+        return dados
 
     dt_us = (time.perf_counter() - t0) * 1_000_000
-    if not silencioso:
-        print(f"\n[-] Árvore B+ (Memória): ID {target_str} não encontrado ({dt_us:.2f} µs).")
-    return None, dt_us
+    print(f"\n[-] Árvore B+ (Memória): ID {target_str} não encontrado ({dt_us:.2f} µs).")
+    return None
 
 
-def consultar_acessos_por_produto_arquivo(target_prod_id: int, silencioso: bool = False):
-    """Consulta acessos de um product_id via índice exaustivo em arquivo + acessos_criptografado.dat."""
+def consultar_acessos_por_produto_arquivo(target_prod_id: int) -> list:
+    """Consulta acessos de um product_id via índice exaustivo em arquivo."""
     if not os.path.exists(ARQ_ACES_PROD_IDX) or not os.path.exists(ARQ_ACES_DAT):
-        if not silencioso:
-            print("\n[!] Índice exaustivo ou cópia criptografada não encontrado. Execute a Opção 1.")
-        return [], 0.0
+        print("\n[!] Índice exaustivo ou cópia criptografada não encontrado. Execute a Opção 1.")
+        return []
 
     t0 = time.perf_counter()
     target_str = f"{int(target_prod_id):010d}"
@@ -737,17 +746,15 @@ def consultar_acessos_por_produto_arquivo(target_prod_id: int, silencioso: bool 
                 resultados.append(desformatar_acesso(reg_bytes))
 
     dt_us = (time.perf_counter() - t0) * 1_000_000
-    if not silencioso:
-        print(f"\n[+] Índice Arquivo ({ARQ_ACES_PROD_IDX}): {len(resultados)} acesso(s) encontrado(s) em {dt_us:.2f} µs!")
-    return resultados, dt_us
+    print(f"\n[+] Índice Arquivo ({ARQ_ACES_PROD_IDX}): {len(resultados)} acesso(s) encontrado(s) em {dt_us:.2f} µs!")
+    return resultados
 
 
-def consultar_acessos_por_produto_hash(target_prod_id: int, silencioso: bool = False):
-    """Consulta acessos de um product_id via Tabela Hash em memória + acessos_criptografado.dat."""
+def consultar_acessos_por_produto_hash(target_prod_id: int) -> list:
+    """Consulta acessos de um product_id via Tabela Hash em memória."""
     if tabela_hash_acessos is None or not os.path.exists(ARQ_ACES_DAT):
-        if not silencioso:
-            print("\n[!] Tabela Hash ou cópia criptografada não disponível. Execute a Opção 1.")
-        return [], 0.0
+        print("\n[!] Tabela Hash ou cópia criptografada não disponível. Execute a Opção 1.")
+        return []
 
     t0 = time.perf_counter()
     target_str = f"{int(target_prod_id):010d}"
@@ -763,13 +770,12 @@ def consultar_acessos_por_produto_hash(target_prod_id: int, silencioso: bool = F
                     resultados.append(desformatar_acesso(reg_bytes))
 
     dt_us = (time.perf_counter() - t0) * 1_000_000
-    if not silencioso:
-        print(f"\n[+] Tabela Hash (Memória): {len(resultados)} acesso(s) encontrado(s) em {dt_us:.2f} µs!")
-    return resultados, dt_us
+    print(f"\n[+] Tabela Hash (Memória): {len(resultados)} acesso(s) encontrado(s) em {dt_us:.2f} µs!")
+    return resultados
 
 
-def inserir_registro(tipo_base: str, novo_bytes: bytes, target_id: int):
-    """Insere registro criptografado na cópia (.dat)."""
+def inserir_registro(tipo_base: str, novo_bytes: bytes, target_id: int) -> bool:
+    """Insere registro ordenadamente na cópia criptografada e atualiza os índices."""
     global indice_produtos, indice_acessos
 
     arq_dados = ARQ_PROD_DAT if tipo_base == "produto" else ARQ_ACES_DAT
@@ -826,8 +832,8 @@ def inserir_registro(tipo_base: str, novo_bytes: bytes, target_id: int):
     return True
 
 
-def remover_registro_logico(tipo_base: str, target_id: int):
-    """Remove logicamente ('*') na cópia criptografada."""
+def remover_registro_logico(tipo_base: str, target_id: int) -> bool:
+    """Marca o registro como removido ('*') na cópia criptografada e atualiza os índices."""
     global indice_produtos, indice_acessos
 
     arq_dados = ARQ_PROD_DAT if tipo_base == "produto" else ARQ_ACES_DAT
@@ -872,7 +878,7 @@ def remover_registro_logico(tipo_base: str, target_id: int):
                 f.flush()
                 removido = True
                 offset_removido = offset
-                print(f"\n[-] Registro ID {target_str} removido logicamente em '{arq_dados}' (original intacto).")
+                print(f"\n[-] Registro ID {target_str} removido logicamente em '{arq_dados}'.")
                 break
             elif chave_mid < target_str:
                 low = mid + 1
@@ -903,147 +909,10 @@ def remover_registro_logico(tipo_base: str, target_id: int):
     print(f"\n[-] Erro: Registro ID {target_str} não encontrado em '{arq_dados}'.")
     return False
 
-def executar_benchmark_comparativo():
-    """Executa 5 consultas reais nas cópias criptografadas comparando Índices de Arquivo vs Memória."""
-    if not os.path.exists(ARQ_PROD_DAT) or not os.path.exists(ARQ_ACES_DAT):
-        print(f"\n[!] '{ARQ_PROD_DAT}' e '{ARQ_ACES_DAT}' não encontrados. Execute a Opção 1 primeiro.")
-        return
 
-    if not os.path.exists(ARQ_ACES_PROD_IDX):
-        reconstruir_indice_exaustivo_acessos_prod()
-    if arvore_b_mais_produtos is None:
-        construir_arvore_b_mais_produtos()
-    if tabela_hash_acessos is None:
-        construir_tabela_hash_acessos()
-
-    tam_prod = os.path.getsize(ARQ_PROD_DAT)
-    total_prod = tam_prod // TAMANHO_REGISTRO_PRODUTO
-    indices_amostra = [0, total_prod // 4, total_prod // 2, (3 * total_prod) // 4, max(0, total_prod - 2)]
-    chaves_teste = []
-
-    with open(ARQ_PROD_DAT, "rb") as f:
-        for idx in indices_amostra:
-            f.seek(idx * TAMANHO_REGISTRO_PRODUTO)
-            reg = f.read(TAMANHO_REGISTRO_PRODUTO)
-            if reg:
-                ch = extrair_chave_registro(reg)
-                if not ch.startswith("*"):
-                    chaves_teste.append(int(ch))
-
-    print("\n==================================================================================")
-    print("       TABELA COMPARATIVA 1: PRODUTOS (ÍNDICE PARCIAL .IDX vs ÁRVORE B+)          ")
-    print("==================================================================================")
-    print(f"{'Consulta':<10} | {'Product ID':<12} | {'Índice Arquivo (µs)':<20} | {'Árvore B+ RAM (µs)':<20}")
-    print("-" * 82)
-    for i, pid in enumerate(chaves_teste, 1):
-        _, t_arq = consultar_por_indice_arquivo(ARQ_PROD_DAT, indice_produtos, pid, TAMANHO_REGISTRO_PRODUTO, desformatar_produto, silencioso=True)
-        _, t_mem = consultar_produto_arvore_b_mais(pid, silencioso=True)
-        print(f"#{i:<9} | {pid:<12} | {t_arq:<20.2f} | {t_mem:<20.2f}")
-
-    print("\n==================================================================================")
-    print("     TABELA COMPARATIVA 2: ACESSOS POR PRODUTO (ÍNDICE .IDX vs TABELA HASH)       ")
-    print("==================================================================================")
-    print(f"{'Consulta':<10} | {'Product ID':<12} | {'Qtd Acessos':<12} | {'Índice Arquivo (µs)':<20} | {'Tabela Hash (µs)':<18}")
-    print("-" * 82)
-    for i, pid in enumerate(chaves_teste, 1):
-        _, t_arq = consultar_acessos_por_produto_arquivo(pid, silencioso=True)
-        res_mem, t_mem = consultar_acessos_por_produto_hash(pid, silencioso=True)
-        print(f"#{i:<9} | {pid:<12} | {len(res_mem):<12} | {t_arq:<20.2f} | {t_mem:<18.2f}")
-    print("==================================================================================")
-
-
-def pergunta_marca_mais_produtos():
-    if not os.path.exists(ARQ_PROD_DAT):
-        print(f"\n[!] '{ARQ_PROD_DAT}' não encontrado. Execute a Opção 1 primeiro.")
-        return
-
-    contagem_marcas = {}
-    valores_invalidos = {"sem_marca", "sem marca", "semmarca", "null", "none", "n/a", "undefined", "unknown", ""}
-
-    with open(ARQ_PROD_DAT, "rb") as f:
-        while True:
-            reg_bytes = f.read(TAMANHO_REGISTRO_PRODUTO)
-            if not reg_bytes or len(reg_bytes) < TAMANHO_REGISTRO_PRODUTO:
-                break
-            chave = extrair_chave_registro(reg_bytes)
-            if not chave.startswith("*"):
-                dados = desformatar_produto(reg_bytes)
-                marca = dados["brand"].strip()
-                m_lower = marca.lower()
-                if m_lower not in valores_invalidos and not m_lower.startswith("sem_") and not m_lower.startswith("sem "):
-                    contagem_marcas[marca] = contagem_marcas.get(marca, 0) + 1
-
-    if not contagem_marcas:
-        print("[-] Nenhum registro com marca válida encontrado.")
-        return
-
-    marca_lider = max(contagem_marcas, key=contagem_marcas.get)
-    qtd = contagem_marcas[marca_lider]
-    print("\n--- RESPOSTA DA PERGUNTA 1 ---")
-    print(f"Marca com maior número de produtos: '{marca_lider}'")
-    print(f"Total de produtos cadastrados: {qtd:,}".replace(",", "."))
-
-
-def pergunta_evento_mais_frequente():
-    if not os.path.exists(ARQ_ACES_DAT):
-        print(f"\n[!] '{ARQ_ACES_DAT}' não encontrado. Execute a Opção 1 primeiro.")
-        return
-
-    contagem_eventos = {}
-
-    with open(ARQ_ACES_DAT, "rb") as f:
-        while True:
-            reg_bytes = f.read(TAMANHO_REGISTRO_ACESSO)
-            if not reg_bytes or len(reg_bytes) < TAMANHO_REGISTRO_ACESSO:
-                break
-            chave = extrair_chave_registro(reg_bytes)
-            if not chave.startswith("*"):
-                dados = desformatar_acesso(reg_bytes)
-                tipo_evento = dados["event_type"]
-                contagem_eventos[tipo_evento] = contagem_eventos.get(tipo_evento, 0) + 1
-
-    if not contagem_eventos:
-        print("[-] Nenhum registro válido encontrado.")
-        return
-
-    evento_lider = max(contagem_eventos, key=contagem_eventos.get)
-    print("\n--- RESPOSTA DA PERGUNTA 2 ---")
-    print(f"Tipo de evento mais frequente: '{evento_lider}' ({contagem_eventos[evento_lider]:,} ocorrências)".replace(",", "."))
-    for evt, total in contagem_eventos.items():
-        print(f"  - {evt}: {total:,}".replace(",", "."))
-
-
-def pergunta_produto_maior_preco():
-    if not os.path.exists(ARQ_PROD_DAT):
-        print(f"\n[!] '{ARQ_PROD_DAT}' não encontrado. Execute a Opção 1 primeiro.")
-        return
-
-    maior_preco = -1.0
-    produto_mais_caro = None
-
-    with open(ARQ_PROD_DAT, "rb") as f:
-        while True:
-            reg_bytes = f.read(TAMANHO_REGISTRO_PRODUTO)
-            if not reg_bytes or len(reg_bytes) < TAMANHO_REGISTRO_PRODUTO:
-                break
-            chave = extrair_chave_registro(reg_bytes)
-            if not chave.startswith("*"):
-                dados = desformatar_produto(reg_bytes)
-                if dados["price"] > maior_preco:
-                    maior_preco = dados["price"]
-                    produto_mais_caro = dados
-
-    if not produto_mais_caro:
-        print("[-] Nenhum registro válido encontrado.")
-        return
-
-    print("\n--- RESPOSTA DA PERGUNTA 3 ---")
-    print(f"  - ID do Produto: {produto_mais_caro['product_id']}")
-    print(f"  - Marca:         {produto_mais_caro['brand']}")
-    print(f"  - Categoria:     {produto_mais_caro['category_code']}")
-    print(f"  - Preço:         $ {produto_mais_caro['price']:.2f}")
-
-
+# ==============================================================================
+# MENU INTERATIVO
+# ==============================================================================
 def menu_principal():
     global indice_produtos, indice_acessos
 
@@ -1075,124 +944,116 @@ def menu_principal():
         print("5. Consulta por ÍNDICE EM MEMÓRIA (Árvore B+ / Tabela Hash)")
         print("6. Inserir novo registro")
         print("7. Remover registro")
-        print("8. Perguntas Analíticas")
-        print("9. Executar Benchmark Comparativo")
         print("0. Sair do programa")
         print("------------------------------------------------------------------")
 
         opcao = input("Escolha uma opção: ").strip()
 
-        if opcao == "0":
-            print("\n[+] Salvando índices em arquivo e encerrando...")
-            salvar_indice_parcial(ARQ_PROD_IDX, indice_produtos)
-            salvar_indice_parcial(ARQ_ACES_IDX, indice_acessos)
-            break
+        try:
+            if opcao == "0":
+                print("\n[+] Salvando índices em arquivo e encerrando...")
+                salvar_indice_parcial(ARQ_PROD_IDX, indice_produtos)
+                salvar_indice_parcial(ARQ_ACES_IDX, indice_acessos)
+                break
 
-        elif opcao == "1":
-            criar_copias_criptografadas()
+            elif opcao == "1":
+                criar_copias_criptografadas()
 
-        elif opcao in ["2", "3", "4", "6", "7"]:
-            print("\nSelecione a base:")
-            print(f"  1. Produtos ({ARQ_PROD_DAT})")
-            print(f"  2. Acessos  ({ARQ_ACES_DAT})")
-            sel_base = input("Escolha (1 ou 2): ").strip()
+            elif opcao in ["2", "3", "4", "6", "7"]:
+                print("\nSelecione a base:")
+                print(f"  1. Produtos ({ARQ_PROD_DAT})")
+                print(f"  2. Acessos  ({ARQ_ACES_DAT})")
+                sel_base = input("Escolha (1 ou 2): ").strip()
 
-            tipo_base = "produto" if sel_base == "1" else "acesso" if sel_base == "2" else None
-            if not tipo_base:
-                print("[!] Opção inválida!")
-                continue
+                tipo_base = "produto" if sel_base == "1" else "acesso" if sel_base == "2" else None
+                if not tipo_base:
+                    print("[!] Opção inválida!")
+                    continue
 
-            arq_dat = ARQ_PROD_DAT if tipo_base == "produto" else ARQ_ACES_DAT
-            tam_rec = TAMANHO_REGISTRO_PRODUTO if tipo_base == "produto" else TAMANHO_REGISTRO_ACESSO
-            parser = desformatar_produto if tipo_base == "produto" else desformatar_acesso
-            ind_ram = indice_produtos if tipo_base == "produto" else indice_acessos
+                arq_dat = ARQ_PROD_DAT if tipo_base == "produto" else ARQ_ACES_DAT
+                tam_rec = TAMANHO_REGISTRO_PRODUTO if tipo_base == "produto" else TAMANHO_REGISTRO_ACESSO
+                parser = desformatar_produto if tipo_base == "produto" else desformatar_acesso
+                ind_ram = indice_produtos if tipo_base == "produto" else indice_acessos
 
-            if opcao == "2":
-                inicio = int(input("Índice inicial (padrão 0): ") or "0")
-                qtd = int(input("Quantidade a exibir (padrão 10): ") or "10")
-                mostrar_dados(arq_dat, tam_rec, parser, inicio, qtd)
+                if opcao == "2":
+                    inicio = int(input("Índice inicial (padrão 0): ") or "0")
+                    qtd = int(input("Quantidade a exibir (padrão 10): ") or "10")
+                    mostrar_dados(arq_dat, tam_rec, parser, inicio, qtd)
 
-            elif opcao == "3":
-                target = int(input(f"ID do {tipo_base}: "))
-                res = pesquisa_binaria_direta(arq_dat, target, tam_rec, parser)
-                if res:
-                    print("    Dados:", res)
-
-            elif opcao == "4":
-                if tipo_base == "produto":
-                    target = int(input("ID do produto (chave): "))
-                    res, _ = consultar_por_indice_arquivo(arq_dat, ind_ram, target, tam_rec, parser)
+                elif opcao == "3":
+                    target = int(input(f"ID do {tipo_base}: "))
+                    res = pesquisa_binaria_direta(arq_dat, target, tam_rec, parser)
                     if res:
                         print("    Dados:", res)
-                else:
-                    print(f"  1. Buscar acesso por event_id (índice parcial {ARQ_ACES_IDX})")
-                    print(f"  2. Buscar acessos por product_id (índice exaustivo {ARQ_ACES_PROD_IDX})")
-                    sub = input("Escolha (1 ou 2): ").strip()
-                    if sub == "1":
-                        target = int(input("event_id: "))
-                        res, _ = consultar_por_indice_arquivo(arq_dat, ind_ram, target, tam_rec, parser)
+
+                elif opcao == "4":
+                    if tipo_base == "produto":
+                        target = int(input("ID do produto (chave): "))
+                        res = consultar_por_indice_arquivo(arq_dat, ind_ram, target, tam_rec, parser)
                         if res:
                             print("    Dados:", res)
-                    elif sub == "2":
-                        target_prod = int(input("product_id: "))
-                        res_lista, _ = consultar_acessos_por_produto_arquivo(target_prod)
-                        for item in res_lista[:10]:
-                            print("   ", item)
+                    else:
+                        print(f"  1. Buscar acesso por event_id (índice parcial {ARQ_ACES_IDX})")
+                        print(f"  2. Buscar acessos por product_id (índice exaustivo {ARQ_ACES_PROD_IDX})")
+                        sub = input("Escolha (1 ou 2): ").strip()
+                        if sub == "1":
+                            target = int(input("event_id: "))
+                            res = consultar_por_indice_arquivo(arq_dat, ind_ram, target, tam_rec, parser)
+                            if res:
+                                print("    Dados:", res)
+                        elif sub == "2":
+                            target_prod = int(input("product_id: "))
+                            res_lista = consultar_acessos_por_produto_arquivo(target_prod)
+                            for item in res_lista[:10]:
+                                print("   ", item)
+                            if len(res_lista) > 10:
+                                print(f"    ... e mais {len(res_lista) - 10} registros.")
+                        else:
+                            print("[!] Opção inválida!")
 
-            elif opcao == "6":
-                target_id = int(input(f"Novo ID do {tipo_base}: "))
-                if tipo_base == "produto":
-                    brand = input("Marca (brand): ")
-                    price = float(input("Preço (price): "))
-                    cat = input("Categoria: ")
-                    novo_bytes = formatar_produto(target_id, brand, price, cat)
+                elif opcao == "6":
+                    target_id = int(input(f"Novo ID do {tipo_base}: "))
+                    if tipo_base == "produto":
+                        brand = input("Marca (brand): ")
+                        price = float(input("Preço (price): "))
+                        cat = input("Categoria: ")
+                        novo_bytes = formatar_produto(target_id, brand, price, cat)
+                    else:
+                        e_type = input("Tipo de evento (view, cart, purchase): ")
+                        p_id = int(input("ID do produto relacionado: "))
+                        u_id = int(input("ID do usuário: "))
+                        novo_bytes = formatar_acesso(target_id, e_type, p_id, u_id)
+                    inserir_registro(tipo_base, novo_bytes, target_id)
+
+                elif opcao == "7":
+                    target_id = int(input(f"ID do {tipo_base} a REMOVER: "))
+                    remover_registro_logico(tipo_base, target_id)
+
+            elif opcao == "5":
+                print("\n--- CONSULTA POR ÍNDICE EM MEMÓRIA ---")
+                print("  1. Buscar Produto por product_id (Árvore B+)")
+                print("  2. Buscar Acessos por product_id (Tabela Hash)")
+                sub_mem = input("Escolha (1 ou 2): ").strip()
+                if sub_mem == "1":
+                    pid = int(input("Digite o product_id: "))
+                    res = consultar_produto_arvore_b_mais(pid)
+                    if res:
+                        print("    Dados:", res)
+                elif sub_mem == "2":
+                    pid = int(input("Digite o product_id: "))
+                    res_lista = consultar_acessos_por_produto_hash(pid)
+                    for item in res_lista[:10]:
+                        print("   ", item)
+                    if len(res_lista) > 10:
+                        print(f"    ... e mais {len(res_lista) - 10} registros.")
                 else:
-                    e_type = input("Tipo de evento (view, cart, purchase): ")
-                    p_id = int(input("ID do produto relacionado: "))
-                    u_id = int(input("ID do usuário: "))
-                    novo_bytes = formatar_acesso(target_id, e_type, p_id, u_id)
-                inserir_registro(tipo_base, novo_bytes, target_id)
+                    print("[!] Opção inválida!")
 
-            elif opcao == "7":
-                target_id = int(input(f"ID do {tipo_base} a REMOVER: "))
-                remover_registro_logico(tipo_base, target_id)
+            else:
+                print("\n[!] Opção inválida.")
 
-        elif opcao == "5":
-            print("\n--- CONSULTA POR ÍNDICE EM MEMÓRIA ---")
-            print("  1. Buscar Produto por product_id (Árvore B+)")
-            print("  2. Buscar Acessos por product_id (Tabela Hash)")
-            sub_mem = input("Escolha (1 ou 2): ").strip()
-            if sub_mem == "1":
-                pid = int(input("Digite o product_id: "))
-                res, _ = consultar_produto_arvore_b_mais(pid)
-                if res:
-                    print("    Dados:", res)
-            elif sub_mem == "2":
-                pid = int(input("Digite o product_id: "))
-                res_lista, _ = consultar_acessos_por_produto_hash(pid)
-                for item in res_lista[:10]:
-                    print("   ", item)
-                if len(res_lista) > 10:
-                    print(f"    ... e mais {len(res_lista) - 10} registros.")
-
-        elif opcao == "8":
-            print("\n--- PERGUNTAS ANALÍTICAS ---")
-            print("1. Marca com maior número de produtos cadastrados")
-            print("2. Tipo de evento mais frequente")
-            print("3. Produto de maior valor (preço mais alto)")
-            sub_op = input("Escolha (1, 2 ou 3): ").strip()
-            if sub_op == "1":
-                pergunta_marca_mais_produtos()
-            elif sub_op == "2":
-                pergunta_evento_mais_frequente()
-            elif sub_op == "3":
-                pergunta_produto_maior_preco()
-
-        elif opcao == "9":
-            executar_benchmark_comparativo()
-
-        else:
-            print("\n[!] Opção inválida.")
+        except ValueError:
+            print("\n[!] Entrada inválida: informe um valor numérico válido.")
 
 
 if __name__ == "__main__":
