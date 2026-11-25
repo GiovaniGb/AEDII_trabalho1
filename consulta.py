@@ -3,9 +3,6 @@ import os
 import shutil
 import time
 
-# ==============================================================================
-# CONFIGURAÇÕES GERAIS E CONSTANTES
-# ==============================================================================
 # Registros de Produtos: 10 (id) + 20 (brand) + 10 (price) + 30 (cat) + 1 (\n) = 71 bytes
 TAMANHO_REGISTRO_PRODUTO = 71
 # Registros de Acessos: 10 (id) + 12 (type) + 10 (prod_id) + 10 (user_id) + 1 (\n) = 43 bytes
